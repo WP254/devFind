@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Profile from './components/Profile/Profile';
 import ProfileSkeleton from './components/ProfileSkeleton/ProfileSkeleton';
 import Search from './components/Search/Search';
@@ -7,10 +7,10 @@ import ErrorPage from './components/ErrorPage/ErrorPage';
 import NoResultFound from './components/NoResultFound/NoResultFound';
 import Pagination from './components/Pagination/Pagination';
 import './App.css';
-import './components/Pagination/Pagination.css';
 import filenames from './ProfilesList.json';
 
 function App() {
+  const profilesRef = useRef();
   const [profiles, setProfiles] = useState([]);
   const [searching, setSearching] = useState(false);
   const [combinedData, setCombinedData] = useState([]);
@@ -20,6 +20,7 @@ function App() {
   const recordsPerPage = 20;
 
   const currentUrl = window.location.pathname;
+
   useEffect(() => {
     const fetchData = async (file) => {
       try {
@@ -36,7 +37,7 @@ function App() {
       setLoadingProfiles(true);
       try {
         const promises = filenames.map((file) => fetchData(`/data/${file}`));
-        const combinedData = await Promise.all(promises);
+        const combinedData = await Promise.all(promises).then((results) => results.flat());
         setCombinedData(combinedData);
         setShuffledProfiles(shuffleProfiles(combinedData));
       } catch (error) {
@@ -58,26 +59,34 @@ function App() {
     return array;
   };
 
-  const handleSearch = (searchValue) => {
-    const lowercaseSearch = searchValue.toLowerCase().trim();
-    const results = combinedData.filter((object) => {
-      const lowercaseName = object.name.toLowerCase();
-      const lowercaseLocation = object.location.toLowerCase();
-      const matchingSkills = object.skills.filter((skill) => skill.toLowerCase().includes(lowercaseSearch));
-      return (
-        matchingSkills.length > 0 ||
-        lowercaseName.includes(lowercaseSearch) ||
-        lowercaseLocation.includes(lowercaseSearch)
-      );
+  const handleSearch = ({ value, criteria }) => {
+    const normalizeString = (str) =>
+      str
+        .toLowerCase()
+        .replace(/\s*,\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizedValue = normalizeString(value);
+
+    const filteredResults = combinedData.filter((user) => {
+      if (criteria === 'name') {
+        return normalizeString(user.name).includes(normalizedValue);
+      } else if (criteria === 'location') {
+        return normalizeString(user.location).includes(normalizedValue);
+      } else if (criteria === 'skill') {
+        return user.skills.some((skill) => normalizeString(skill).includes(normalizedValue));
+      }
+      return false;
     });
 
-    setSearching(true);
-    setProfiles(results);
+    setProfiles(filteredResults);
     setCurrentPage(1);
+    setSearching(true);
   };
 
   const handleNextPage = () => {
-    const totalPages = Math.ceil((searching ? profiles.length : combinedData.length) / recordsPerPage);
+    const totalPages = Math.ceil((searching ? profiles.length : shuffledProfiles.length) / recordsPerPage);
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
     }
@@ -90,7 +99,7 @@ function App() {
   };
 
   useEffect(() => {
-    window.scrollTo({
+    profilesRef.current.scrollTo({
       top: 0,
       behavior: 'smooth',
     });
@@ -119,24 +128,24 @@ function App() {
     return paginatedData.map((currentRecord, index) => <Profile data={currentRecord} key={index} />);
   };
 
-  return (
-    <div className="App">
+  return currentUrl === '/' ? (
+    <div className="App flex flex-col bg-primaryColor dark:bg-secondaryColor md:flex-row">
       <Sidebar />
-      <Search onSearch={handleSearch} />
-      {currentUrl === '/' ? (
-        <>
-          {profiles.length === 0 && searching ? <NoResultFound /> : renderProfiles()}
+      <div className="w-full pl-5 pr-4 md:h-screen md:w-[77%] md:overflow-y-scroll md:py-7" ref={profilesRef}>
+        <Search onSearch={handleSearch} />
+        {profiles.length === 0 && searching ? <NoResultFound /> : renderProfiles()}
+        {(searching ? profiles.length : shuffledProfiles.length) > 0 && (
           <Pagination
             currentPage={currentPage}
             totalPages={Math.ceil((searching ? profiles.length : shuffledProfiles.length) / recordsPerPage)}
             onNextPage={handleNextPage}
             onPrevPage={handlePrevPage}
           />
-        </>
-      ) : (
-        <ErrorPage />
-      )}
+        )}
+      </div>
     </div>
+  ) : (
+    <ErrorPage />
   );
 }
 
